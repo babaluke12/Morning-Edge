@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Weather Edge</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --border: #1e1e2e;
+    --text: #e8e8f0;
+    --muted: #5a5a7a;
+    --accent: #00e5a0;
+    --warn: #ff6b35;
+    --ok: #00e5a0;
+    --neutral: #7b7bff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'DM Mono', monospace; min-height: 100vh; padding-bottom: 40px; }
+  header { padding: 52px 20px 24px; border-bottom: 1px solid var(--border); position: relative; overflow: hidden; }
+  header::before { content: ''; position: absolute; top: -60px; right: -60px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(0,229,160,0.08) 0%, transparent 70%); pointer-events: none; }
+  .header-label { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
+  h1 { font-family: 'Syne', sans-serif; font-size: 32px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; color: var(--text); }
+  .date-line { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .run-btn { display: block; width: calc(100% - 40px); margin: 20px 20px 0; padding: 16px; background: var(--accent); color: #000; border: none; font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; border-radius: 4px; transition: opacity 0.15s, transform 0.1s; -webkit-tap-highlight-color: transparent; }
+  .run-btn:active { transform: scale(0.98); opacity: 0.85; }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .status-bar { margin: 12px 20px 0; font-size: 11px; color: var(--muted); min-height: 16px; display: flex; align-items: center; gap: 8px; }
+  .spinner { display: none; width: 10px; height: 10px; border: 1.5px solid var(--muted); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #results { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .city-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; opacity: 0; transform: translateY(8px); animation: fadeUp 0.3s ease forwards; }
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+  .city-card.edge { border-color: rgba(255,107,53,0.4); }
+  .city-card.match { border-color: rgba(0,229,160,0.2); }
+  .card-header { padding: 12px 14px 10px; display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border); }
+  .city-name { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; color: var(--text); }
+  .station-id { font-size: 10px; color: var(--muted); margin-top: 2px; letter-spacing: 0.1em; }
+  .edge-badge { font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: 3px; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
+  .badge-edge { background: rgba(255,107,53,0.15); color: var(--warn); }
+  .badge-match { background: rgba(0,229,160,0.1); color: var(--ok); }
+  .badge-neutral { background: rgba(123,123,255,0.1); color: var(--neutral); }
+  .card-body { padding: 12px 14px; }
+  .forecast-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .forecast-label { font-size: 11px; color: var(--muted); }
+  .forecast-temp { font-size: 22px; font-weight: 500; color: var(--text); }
+  .forecast-temp span { font-size: 12px; color: var(--muted); margin-left: 2px; }
+  .buckets-label { font-size: 10px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; }
+  .bucket-list { display: flex; flex-direction: column; gap: 4px; }
+  .bucket-row { display: flex; align-items: center; gap: 8px; }
+  .bucket-bar-wrap { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .bucket-bar { height: 100%; border-radius: 2px; background: var(--muted); transition: width 0.4s ease; }
+  .bucket-bar.is-forecast { background: var(--warn); }
+  .bucket-bar.is-favorite { background: var(--accent); }
+  .bucket-name { font-size: 11px; color: var(--muted); width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bucket-pct { font-size: 11px; color: var(--text); width: 32px; text-align: right; }
+  .edge-note { margin-top: 10px; padding: 8px 10px; background: rgba(255,107,53,0.07); border-left: 2px solid var(--warn); font-size: 11px; color: var(--warn); line-height: 1.5; }
+  .match-note { margin-top: 10px; padding: 8px 10px; background: rgba(0,229,160,0.05); border-left: 2px solid rgba(0,229,160,0.3); font-size: 11px; color: var(--ok); opacity: 0.8; }
+  .error-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-size: 12px; color: var(--muted); }
+  .summary-bar { margin: 0 20px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; display: flex; gap: 20px; }
+  .summary-item { text-align: center; }
+  .summary-num { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; }
+  .summary-num.edge-color { color: var(--warn); }
+  .summary-num.ok-color { color: var(--ok); }
+  .summary-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .divider { width: 1px; background: var(--border); align-self: stretch; }
+  .cors-note { margin: 0 20px; padding: 10px 14px; background: rgba(123,123,255,0.05); border: 1px solid rgba(123,123,255,0.15); border-radius: 6px; font-size: 11px; color: var(--neutral); line-height: 1.6; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="header-label">Kalshi Weather</div>
+  <h1>MORNING<br>EDGE</h1>
+  <div class="date-line" id="dateDisplay">—</div>
+</header>
+<button class="run-btn" id="runBtn" onclick="runBriefing()">▶ Run Briefing</button>
+<div class="status-bar">
+  <div class="spinner" id="spinner"></div>
+  <span id="statusText"></span>
+</div>
+<div class="cors-note" id="corsNote">⚠️ NWS API blocked this request (CORS). This usually works fine when hosted online. Kalshi market odds still load correctly.</div>
+<div id="summaryWrap" style="display:none; margin-bottom: 12px;">
+  <div class="summary-bar">
+    <div class="summary-item"><div class="summary-num edge-color" id="edgeCount">0</div><div class="summary-label">EDGES</div></div>
+    <div class="divider"></div>
+    <div class="summary-item"><div class="summary-num ok-color" id="matchCount">0</div><div class="summary-label">AGREE</div></div>
+    <div class="divider"></div>
+    <div class="summary-item"><div class="summary-num" id="totalCount">0</div><div class="summary-label">MARKETS</div></div>
+  </div>
+</div>
+<div id="results"></div>
+<script>
+const CITIES = [
+  { name: "Miami",       station: "KMIA", series: "KXHIGHMIA", lat: 25.7929, lon: -80.3161 },
+  { name: "Las Vegas",   station: "KLAS", series: "KXHIGHLAS", lat: 36.0840, lon: -115.1537 },
+  { name: "New York",    station: "KNYC", series: "KXHIGHNY",  lat: 40.7789, lon: -73.9692 },
+  { name: "Chicago",     station: "KORD", series: "KXHIGHCHI", lat: 41.9742, lon: -87.9073 },
+  { name: "Denver",      station: "KDEN", series: "KXHIGHDEN", lat: 39.8561, lon: -104.6737 },
+  { name: "Los Angeles", station: "KLAX", series: "KXHIGHLAX", lat: 33.9425, lon: -118.4081 },
+  { name: "Houston",     station: "KIAH", series: "KXHIGHHOU", lat: 29.9844, lon: -95.3414 },
+  { name: "Phoenix",     station: "KPHX", series: "KXHIGHPHX", lat: 33.4373, lon: -112.0078 },
+  { name: "Atlanta",     station: "KATL", series: "KXHIGHATL", lat: 33.6407, lon: -84.4277 },
+  { name: "Dallas",      station: "KDFW", series: "KXHIGHDFW", lat: 32.8998, lon: -97.0403 },
+];
+const KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
+async function getKalshiMarkets(series) {
+  const r = await fetch(`${KALSHI_BASE}/markets?series_ticker=${series}&status=open&limit=20`);
+  if (!r.ok) throw new Error(`Kalshi ${r.status}`);
+  const data = await r.json();
+  return (data.markets || []).sort((a, b) => (b.yes_bid || 0) - (a.yes_bid || 0));
+}
+async function getNWSForecast(lat, lon) {
+  const r1 = await fetch(`https://api.weather.gov/points/${lat},${lon}`, { headers: { "User-Agent": "weather-edge/1.0" } });
+  if (!r1.ok) throw new Error(`NWS points ${r1.status}`);
+  const p1 = await r1.json();
+  const r2 = await fetch(p1.properties.forecast, { headers: { "User-Agent": "weather-edge/1.0" } });
+  if (!r2.ok) throw new Error(`NWS forecast ${r2.status}`);
+  const p2 = await r2.json();
+  const periods = p2.properties.periods;
+  const today = new Date().toISOString().slice(0, 10);
+  for (const p of periods) { if (p.isDaytime && p.startTime.startsWith(today)) return p.temperature; }
+  for (const p of periods) { if (p.isDaytime) return p.temperature; }
+  return null;
+}
+function matchBucket(markets, forecastTemp) {
+  if (forecastTemp == null) return null;
+  for (const m of markets) {
+    const title = (m.subtitle || m.title || "").toLowerCase();
+    const nums = title.match(/\d+/g);
+    if (nums && nums.length >= 2) { const lo = parseInt(nums[0]), hi = parseInt(nums[1]); if (forecastTemp >= lo && forecastTemp <= hi) return m; }
+    else if (nums && nums.length === 1) { const val = parseInt(nums[0]); if ((title.includes("above") || title.includes("higher")) && forecastTemp >= val) return m; if ((title.includes("below") || title.includes("lower")) && forecastTemp <= val) return m; }
+  }
+  return null;
+}
+function bucketTitle(m) { return m.subtitle || m.title || m.ticker || "?"; }
+function bucketPct(m) { const raw = m.yes_bid || m.last_price || 0; return raw > 1 ? Math.round(raw) : Math.round(raw * 100); }
+function renderCard(city, markets, forecastTemp, delay) {
+  const favorite = markets[0];
+  const forecastBucket = matchBucket(markets, forecastTemp);
+  let status = "neutral";
+  if (forecastBucket && favorite) { status = forecastBucket.ticker === favorite.ticker ? "match" : "edge"; }
+  const card = document.createElement("div");
+  card.className = `city-card ${status}`;
+  card.style.animationDelay = `${delay}ms`;
+  const badgeClass = status === "edge" ? "badge-edge" : status === "match" ? "badge-match" : "badge-neutral";
+  const badgeText  = status === "edge" ? "🚨 EDGE" : status === "match" ? "✓ AGREE" : "— N/A";
+  const topMarkets = markets.slice(0, 4);
+  const maxPct = bucketPct(topMarkets[0]) || 1;
+  const bucketRows = topMarkets.map(m => {
+    const pct = bucketPct(m);
+    const isFav  = favorite && m.ticker === favorite.ticker;
+    const isFcst = forecastBucket && m.ticker === forecastBucket.ticker;
+    const barClass = isFcst ? "is-forecast" : isFav ? "is-favorite" : "";
+    return `<div class="bucket-row"><div class="bucket-name">${bucketTitle(m)}</div><div class="bucket-bar-wrap"><div class="bucket-bar ${barClass}" style="width:${Math.round((pct/maxPct)*100)}%"></div></div><div class="bucket-pct">${pct}%</div></div>`;
+  }).join("");
+  let noteHtml = "";
+  if (status === "edge" && forecastBucket && favorite) {
+    noteHtml = `<div class="edge-note">NWS → <strong>${bucketTitle(forecastBucket)}</strong> at ${bucketPct(forecastBucket)}%<br>Market favors <strong>${bucketTitle(favorite)}</strong> at ${bucketPct(favorite)}% — ${bucketPct(favorite) - bucketPct(forecastBucket)}pt gap</div>`;
+  } else if (status === "match" && favorite) {
+    noteHtml = `<div class="match-note">NWS & market agree on ${bucketTitle(favorite)}</div>`;
+  }
+  const tempDisplay = forecastTemp != null ? `<div class="forecast-temp">${forecastTemp}<span>°F</span></div>` : `<div class="forecast-temp" style="font-size:14px;color:var(--muted)">unavailable</div>`;
+  card.innerHTML = `<div class="card-header"><div><div class="city-name">${city.name}</div><div class="station-id">${city.station}</div></div><div class="edge-badge ${badgeClass}">${badgeText}</div></div><div class="card-body"><div class="forecast-row"><div class="forecast-label">NWS FORECAST</div>${tempDisplay}</div><div class="buckets-label">KALSHI BUCKETS</div><div class="bucket-list">${bucketRows}</div>${noteHtml}</div>`;
+  return { card, status };
+}
+async function runBriefing() {
+  const btn = document.getElementById("runBtn");
+  const spinner = document.getElementById("spinner");
+  const statusEl = document.getElementById("statusText");
+  const resultsEl = document.getElementById("results");
+  const summaryWrap = document.getElementById("summaryWrap");
+  const corsNote = document.getElementById("corsNote");
+  btn.disabled = true; spinner.style.display = "block"; resultsEl.innerHTML = ""; summaryWrap.style.display = "none"; corsNote.style.display = "none";
+  let edgeCount = 0, matchCount = 0, totalCount = 0, nwsFailed = false;
+  for (let i = 0; i < CITIES.length; i++) {
+    const city = CITIES[i];
+    statusEl.textContent = `Fetching ${city.name}… (${i+1}/${CITIES.length})`;
+    let markets = [], forecastTemp = null;
+    try { markets = await getKalshiMarkets(city.series); } catch(e) { console.warn(`Kalshi error for ${city.series}:`, e); }
+    if (markets.length === 0) continue;
+    try { forecastTemp = await getNWSForecast(city.lat, city.lon); } catch(e) { console.warn(`NWS error for ${city.name}:`, e); if (e.message && e.message.includes("Failed to fetch")) nwsFailed = true; }
+    const { card, status } = renderCard(city, markets, forecastTemp, i * 60);
+    resultsEl.appendChild(card);
+    totalCount++;
+    if (status === "edge") edgeCount++;
+    if (status === "match") matchCount++;
+  }
+  document.getElementById("edgeCount").textContent = edgeCount;
+  document.getElementById("matchCount").textContent = matchCount;
+  document.getElementById("totalCount").textContent = totalCount;
+  summaryWrap.style.display = "block";
+  if (nwsFailed) corsNote.style.display = "block";
+  spinner.style.display = "none";
+  statusEl.textContent = `Done — ${new Date().toLocaleTimeString()}`;
+  btn.disabled = false;
+}
+document.getElementById("dateDisplay").textContent = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+</script>
+</body>
+</html>
