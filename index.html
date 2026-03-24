@@ -60,15 +60,14 @@
   .bucket-pct { font-size: 11px; color: var(--text); width: 32px; text-align: right; }
   .edge-note { margin-top: 10px; padding: 8px 10px; background: rgba(255,107,53,0.07); border-left: 2px solid var(--warn); font-size: 11px; color: var(--warn); line-height: 1.5; }
   .match-note { margin-top: 10px; padding: 8px 10px; background: rgba(0,229,160,0.05); border-left: 2px solid rgba(0,229,160,0.3); font-size: 11px; color: var(--ok); opacity: 0.8; }
-  .error-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-size: 12px; color: var(--muted); }
-  .summary-bar { margin: 0 20px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; display: flex; gap: 20px; }
+  .summary-bar { margin: 0 20px 12px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; display: flex; gap: 20px; }
   .summary-item { text-align: center; }
   .summary-num { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; }
   .summary-num.edge-color { color: var(--warn); }
   .summary-num.ok-color { color: var(--ok); }
   .summary-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
   .divider { width: 1px; background: var(--border); align-self: stretch; }
-  .cors-note { margin: 0 20px; padding: 10px 14px; background: rgba(123,123,255,0.05); border: 1px solid rgba(123,123,255,0.15); border-radius: 6px; font-size: 11px; color: var(--neutral); line-height: 1.6; display: none; }
+  .cors-note { margin: 0 20px 12px; padding: 10px 14px; background: rgba(123,123,255,0.05); border: 1px solid rgba(123,123,255,0.15); border-radius: 6px; font-size: 11px; color: var(--neutral); line-height: 1.6; display: none; }
 </style>
 </head>
 <body>
@@ -82,8 +81,8 @@
   <div class="spinner" id="spinner"></div>
   <span id="statusText"></span>
 </div>
-<div class="cors-note" id="corsNote">⚠️ NWS API blocked this request (CORS). This usually works fine when hosted online. Kalshi market odds still load correctly.</div>
-<div id="summaryWrap" style="display:none; margin-bottom: 12px;">
+<div class="cors-note" id="corsNote">⚠️ NWS API blocked (CORS). Kalshi odds still load correctly.</div>
+<div id="summaryWrap" style="display:none;">
   <div class="summary-bar">
     <div class="summary-item"><div class="summary-num edge-color" id="edgeCount">0</div><div class="summary-label">EDGES</div></div>
     <div class="divider"></div>
@@ -107,12 +106,20 @@ const CITIES = [
   { name: "Dallas",      station: "KDFW", series: "KXHIGHDFW", lat: 32.8998, lon: -97.0403 },
 ];
 const KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
+
+function pricePct(m) {
+  // API returns yes_bid_dollars as a string like "0.56" = 56%
+  const val = parseFloat(m.yes_bid_dollars || m.last_price_dollars || 0);
+  return Math.round(val * 100);
+}
+
 async function getKalshiMarkets(series) {
   const r = await fetch(`${KALSHI_BASE}/markets?series_ticker=${series}&status=open&limit=20`);
   if (!r.ok) throw new Error(`Kalshi ${r.status}`);
   const data = await r.json();
-  return (data.markets || []).sort((a, b) => (b.yes_bid || 0) - (a.yes_bid || 0));
+  return (data.markets || []).sort((a, b) => parseFloat(b.yes_bid_dollars || 0) - parseFloat(a.yes_bid_dollars || 0));
 }
+
 async function getNWSForecast(lat, lon) {
   const r1 = await fetch(`https://api.weather.gov/points/${lat},${lon}`, { headers: { "User-Agent": "weather-edge/1.0" } });
   if (!r1.ok) throw new Error(`NWS points ${r1.status}`);
@@ -126,32 +133,42 @@ async function getNWSForecast(lat, lon) {
   for (const p of periods) { if (p.isDaytime) return p.temperature; }
   return null;
 }
-function matchBucket(markets, forecastTemp) {
-  if (forecastTemp == null) return null;
+
+function matchBucket(markets, temp) {
+  if (temp == null) return null;
   for (const m of markets) {
     const title = (m.subtitle || m.title || "").toLowerCase();
     const nums = title.match(/\d+/g);
-    if (nums && nums.length >= 2) { const lo = parseInt(nums[0]), hi = parseInt(nums[1]); if (forecastTemp >= lo && forecastTemp <= hi) return m; }
-    else if (nums && nums.length === 1) { const val = parseInt(nums[0]); if ((title.includes("above") || title.includes("higher")) && forecastTemp >= val) return m; if ((title.includes("below") || title.includes("lower")) && forecastTemp <= val) return m; }
+    if (nums && nums.length >= 2) {
+      const lo = parseInt(nums[0]), hi = parseInt(nums[1]);
+      if (temp >= lo && temp <= hi) return m;
+    } else if (nums && nums.length === 1) {
+      const val = parseInt(nums[0]);
+      if ((title.includes("above") || title.includes("higher")) && temp >= val) return m;
+      if ((title.includes("below") || title.includes("lower")) && temp <= val) return m;
+    }
   }
   return null;
 }
+
 function bucketTitle(m) { return m.subtitle || m.title || m.ticker || "?"; }
-function bucketPct(m) { const raw = m.yes_bid || m.last_price || 0; return raw > 1 ? Math.round(raw) : Math.round(raw * 100); }
+
 function renderCard(city, markets, forecastTemp, delay) {
   const favorite = markets[0];
   const forecastBucket = matchBucket(markets, forecastTemp);
   let status = "neutral";
-  if (forecastBucket && favorite) { status = forecastBucket.ticker === favorite.ticker ? "match" : "edge"; }
+  if (forecastBucket && favorite) {
+    status = forecastBucket.ticker === favorite.ticker ? "match" : "edge";
+  }
   const card = document.createElement("div");
   card.className = `city-card ${status}`;
   card.style.animationDelay = `${delay}ms`;
   const badgeClass = status === "edge" ? "badge-edge" : status === "match" ? "badge-match" : "badge-neutral";
   const badgeText  = status === "edge" ? "🚨 EDGE" : status === "match" ? "✓ AGREE" : "— N/A";
   const topMarkets = markets.slice(0, 4);
-  const maxPct = bucketPct(topMarkets[0]) || 1;
+  const maxPct = pricePct(topMarkets[0]) || 1;
   const bucketRows = topMarkets.map(m => {
-    const pct = bucketPct(m);
+    const pct = pricePct(m);
     const isFav  = favorite && m.ticker === favorite.ticker;
     const isFcst = forecastBucket && m.ticker === forecastBucket.ticker;
     const barClass = isFcst ? "is-forecast" : isFav ? "is-favorite" : "";
@@ -159,14 +176,18 @@ function renderCard(city, markets, forecastTemp, delay) {
   }).join("");
   let noteHtml = "";
   if (status === "edge" && forecastBucket && favorite) {
-    noteHtml = `<div class="edge-note">NWS → <strong>${bucketTitle(forecastBucket)}</strong> at ${bucketPct(forecastBucket)}%<br>Market favors <strong>${bucketTitle(favorite)}</strong> at ${bucketPct(favorite)}% — ${bucketPct(favorite) - bucketPct(forecastBucket)}pt gap</div>`;
+    const favPct = pricePct(favorite), fcstPct = pricePct(forecastBucket);
+    noteHtml = `<div class="edge-note">NWS → <strong>${bucketTitle(forecastBucket)}</strong> at ${fcstPct}%<br>Market favors <strong>${bucketTitle(favorite)}</strong> at ${favPct}% — ${favPct - fcstPct}pt gap</div>`;
   } else if (status === "match" && favorite) {
     noteHtml = `<div class="match-note">NWS & market agree on ${bucketTitle(favorite)}</div>`;
   }
-  const tempDisplay = forecastTemp != null ? `<div class="forecast-temp">${forecastTemp}<span>°F</span></div>` : `<div class="forecast-temp" style="font-size:14px;color:var(--muted)">unavailable</div>`;
+  const tempDisplay = forecastTemp != null
+    ? `<div class="forecast-temp">${forecastTemp}<span>°F</span></div>`
+    : `<div class="forecast-temp" style="font-size:14px;color:var(--muted)">unavailable</div>`;
   card.innerHTML = `<div class="card-header"><div><div class="city-name">${city.name}</div><div class="station-id">${city.station}</div></div><div class="edge-badge ${badgeClass}">${badgeText}</div></div><div class="card-body"><div class="forecast-row"><div class="forecast-label">NWS FORECAST</div>${tempDisplay}</div><div class="buckets-label">KALSHI BUCKETS</div><div class="bucket-list">${bucketRows}</div>${noteHtml}</div>`;
   return { card, status };
 }
+
 async function runBriefing() {
   const btn = document.getElementById("runBtn");
   const spinner = document.getElementById("spinner");
@@ -174,7 +195,8 @@ async function runBriefing() {
   const resultsEl = document.getElementById("results");
   const summaryWrap = document.getElementById("summaryWrap");
   const corsNote = document.getElementById("corsNote");
-  btn.disabled = true; spinner.style.display = "block"; resultsEl.innerHTML = ""; summaryWrap.style.display = "none"; corsNote.style.display = "none";
+  btn.disabled = true; spinner.style.display = "block";
+  resultsEl.innerHTML = ""; summaryWrap.style.display = "none"; corsNote.style.display = "none";
   let edgeCount = 0, matchCount = 0, totalCount = 0, nwsFailed = false;
   for (let i = 0; i < CITIES.length; i++) {
     const city = CITIES[i];
@@ -182,7 +204,7 @@ async function runBriefing() {
     let markets = [], forecastTemp = null;
     try { markets = await getKalshiMarkets(city.series); } catch(e) { console.warn(`Kalshi error for ${city.series}:`, e); }
     if (markets.length === 0) continue;
-    try { forecastTemp = await getNWSForecast(city.lat, city.lon); } catch(e) { console.warn(`NWS error for ${city.name}:`, e); if (e.message && e.message.includes("Failed to fetch")) nwsFailed = true; }
+    try { forecastTemp = await getNWSForecast(city.lat, city.lon); } catch(e) { console.warn(`NWS error for ${city.name}:`, e); if (String(e).includes("fetch")) nwsFailed = true; }
     const { card, status } = renderCard(city, markets, forecastTemp, i * 60);
     resultsEl.appendChild(card);
     totalCount++;
@@ -198,6 +220,7 @@ async function runBriefing() {
   statusEl.textContent = `Done — ${new Date().toLocaleTimeString()}`;
   btn.disabled = false;
 }
+
 document.getElementById("dateDisplay").textContent = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 </script>
 </body>
